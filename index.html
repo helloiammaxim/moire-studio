@@ -107,6 +107,16 @@ input[type=color]::-webkit-color-swatch{border:0;border-radius:50%}
 input[type=color]::-moz-color-swatch{border:0;border-radius:50%}
 
 .hint{color:var(--muted);font-size:11.5px;line-height:1.45;margin:0}
+.sublabel{font-size:11.5px;font-weight:600;color:var(--muted);margin-top:4px}
+.saverow{display:flex;gap:6px}
+input[type=text]{flex:1;min-width:0;font:inherit;font-size:12.5px;padding:6px 13px;border-radius:999px;border:0;background:var(--fill);color:var(--ink)}
+input[type=text]::placeholder{color:var(--muted)}
+.chip{display:inline-flex;align-items:center;background:var(--accent-soft);border-radius:999px}
+.chip button{background:transparent;color:var(--accent);font-size:12px;padding:5px 4px 5px 11px}
+.chip button.x{padding:5px 10px 5px 4px;color:var(--accent);opacity:.7;font-size:13px;line-height:1}
+.chip button.x:hover{opacity:1;background:transparent}
+.chip button.x.confirm{opacity:1;color:#ff3b30;font-size:12px;font-weight:600}
+.chip button:hover{background:transparent}
 .toast{position:fixed;left:50%;top:calc(20px + env(safe-area-inset-top, 0px));transform:translateX(-50%) translateY(-8px);background:var(--hud);backdrop-filter:saturate(180%) blur(24px);-webkit-backdrop-filter:saturate(180%) blur(24px);color:var(--ink);padding:9px 16px;border-radius:999px;font-size:12.5px;font-weight:500;box-shadow:0 0 0 .5px var(--hair),0 8px 30px var(--shadow);opacity:0;transition:opacity .2s ease,transform .2s ease;pointer-events:none;z-index:5}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 .rec-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#ff3b30;margin-right:6px;vertical-align:1px;animation:blink 1s infinite}
@@ -139,7 +149,19 @@ input[type=color]::-moz-color-swatch{border:0;border-radius:50%}
     </div>
 
     <details open><summary>Presets</summary>
-      <div class="sec"><div class="btns" id="presets"></div></div>
+      <div class="sec">
+        <div class="btns" id="presets"></div>
+        <div class="sublabel">My presets</div>
+        <div class="btns" id="mypresets"></div>
+        <div class="saverow">
+          <input type="text" id="presetName" placeholder="Name this look" maxlength="40" aria-label="Preset name">
+          <button id="presetSave" class="primary">Save</button>
+        </div>
+        <div class="btns">
+          <button id="presetExport">Export presets</button>
+          <span class="file"><button tabindex="-1">Import presets</button><input type="file" id="presetImport" accept=".json,application/json" aria-label="Import presets"></span>
+        </div>
+      </div>
     </details>
 
     <details open><summary>Grating</summary>
@@ -322,6 +344,66 @@ for (const name in PRESETS) {
   b.addEventListener('click', () => { Object.assign(S, PRESETS[name]); syncUI(); dirty = true; });
   pres.appendChild(b);
 }
+
+/* ---------- saved presets (kept in this browser; export/import as JSON) ---------- */
+const PKEY = 'moire-line-studio.presets.v1';
+let myPresets = {};
+try { const raw = localStorage.getItem(PKEY); if (raw) myPresets = JSON.parse(raw) || {}; } catch (e) {}
+function persist(){ try { localStorage.setItem(PKEY, JSON.stringify(myPresets)); return true; } catch (e) { return false; } }
+function snapshot(){ const o = {}; for (const k in DEF) o[k] = S[k]; o.anim = { ...ANIM }; return o; }
+function applyPreset(p){
+  const oldRes = S.res;
+  for (const k in DEF) if (k in p && typeof p[k] === typeof DEF[k]) S[k] = p[k];
+  if (p.anim) for (const k in ANIM) setAnim(k, !!p.anim[k]);
+  if (S.res !== oldRes && src) resize();
+  needLum = true; syncUI(); dirty = true;
+}
+function renderMine(){
+  const host = $('mypresets'); host.textContent = '';
+  const names = Object.keys(myPresets);
+  if (!names.length) { const h = document.createElement('p'); h.className = 'hint'; h.textContent = 'No saved presets yet. Set up a look, name it and press Save.'; host.appendChild(h); return; }
+  for (const name of names) {
+    const chip = document.createElement('span'); chip.className = 'chip';
+    const load = document.createElement('button'); load.textContent = name; load.title = 'Load ' + name;
+    load.addEventListener('click', () => { applyPreset(myPresets[name]); $('presetName').value = name; toast('Loaded ' + name); });
+    const x = document.createElement('button'); x.className = 'x'; x.textContent = '×'; x.setAttribute('aria-label', 'Delete ' + name);
+    let armed = null;
+    x.addEventListener('click', () => {
+      if (!armed) { x.classList.add('confirm'); x.textContent = 'Delete?'; armed = setTimeout(() => { armed = null; x.classList.remove('confirm'); x.textContent = '×'; }, 3000); return; }
+      clearTimeout(armed); delete myPresets[name]; persist(); renderMine(); toast('Deleted ' + name);
+    });
+    chip.append(load, x); host.appendChild(chip);
+  }
+}
+function savePreset(){
+  let name = $('presetName').value.trim();
+  if (!name) { let n = Object.keys(myPresets).length + 1; while (myPresets['Preset ' + n]) n++; name = 'Preset ' + n; }
+  const existed = name in myPresets;
+  myPresets[name] = snapshot();
+  const ok = persist(); renderMine(); $('presetName').value = name;
+  toast(!ok ? 'Saved for this session only. This browser blocks storage, so use Export to keep it.' : (existed ? 'Updated ' : 'Saved ') + name);
+}
+$('presetSave').addEventListener('click', savePreset);
+$('presetName').addEventListener('keydown', e => { if (e.key === 'Enter') savePreset(); });
+$('presetExport').addEventListener('click', () => {
+  if (!Object.keys(myPresets).length) { toast('Save a preset first, then export.'); return; }
+  saveFile('moire-presets.json', new Blob([JSON.stringify({ app: 'moire-line-studio', version: 1, presets: myPresets }, null, 2)], { type: 'application/json' }));
+});
+$('presetImport').addEventListener('change', e => {
+  const f = e.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    try {
+      const data = JSON.parse(r.result); const incoming = data.presets || data;
+      let n = 0; for (const k in incoming) if (incoming[k] && typeof incoming[k] === 'object') { myPresets[k] = incoming[k]; n++; }
+      if (!n) throw new Error('empty');
+      persist(); renderMine(); toast('Imported ' + n + (n === 1 ? ' preset' : ' presets'));
+    } catch (err) { toast('That file has no presets. Use a JSON file exported from this tool.'); }
+    e.target.value = '';
+  };
+  r.readAsText(f);
+});
+renderMine();
 
 /* ---------- source ---------- */
 let src = null, srcW = 4, srcH = 3, isVideo = false, lastVT = -1;
