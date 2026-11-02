@@ -293,10 +293,10 @@ for (const [sec, key, label, min, max, step, unit, only, spdOf] of RANGES) {
   row.className = spdOf ? 'row sub' : 'row'; if (only) row.dataset.only = only; if (spdOf) row.dataset.spd = spdOf;
   const id = 'r-' + key;
   const extra = key in ANIM ? `<button class="abtn" id="a-${key}" aria-label="Animate ${label}" title="Animate ${label}">${PLAY}</button>` : '<span></span>';
-  row.innerHTML = `<label for="${id}">${label}</label><input type="range" id="${id}" min="${min}" max="${max}" step="${step}"><span class="num"><input type="number" id="n-${key}" min="${min}" max="${max}" step="${step}" inputmode="decimal" aria-label="${label} value"><i>${unit}</i></span>${extra}`;
+  row.innerHTML = `<label for="${id}">${label}</label><input type="range" id="${id}" min="${min}" max="${max}" step="${step}"><span class="num"><input type="text" class="numv" id="n-${key}" inputmode="decimal" autocomplete="off" spellcheck="false" aria-label="${label} value"><i>${unit}</i></span>${extra}`;
   const host = $(sec);
   if (sec === 's-out') host.insertBefore(row, host.firstChild); else host.appendChild(row);
-  const inp = row.querySelector('input[type=range]'), out = row.querySelector('input[type=number]');
+  const inp = row.querySelector('input[type=range]'), out = row.querySelector('input.numv');
   rangeEls[key] = { inp, out, step, unit };
   const setVal = v => {
     S[key] = v; fill(inp);
@@ -306,7 +306,7 @@ for (const [sec, key, label, min, max, step, unit, only, spdOf] of RANGES) {
     dirty = true;
   };
   const commitNum = final => {
-    let v = parseFloat(out.value);
+    let v = parseFloat(String(out.value).replace(',', '.').replace(/[^0-9.+\-eE]/g, ''));
     if (!isFinite(v)) { if (final) out.value = fmt(S[key], step); return; }
     v = Math.min(max, Math.max(min, v));
     if (key === 'res' || key === 'detail') v = Math.round(v);
@@ -315,7 +315,16 @@ for (const [sec, key, label, min, max, step, unit, only, spdOf] of RANGES) {
   };
   out.addEventListener('input', () => commitNum(false));
   out.addEventListener('change', () => commitNum(true));
-  out.addEventListener('keydown', e => { if (e.key === 'Enter') out.blur(); });
+  out.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { out.blur(); return; }
+    if (e.key === 'Escape') { out.value = fmt(S[key], step); out.blur(); return; }
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      const d = (e.key === 'ArrowUp' ? 1 : -1) * step * (e.shiftKey ? 10 : 1);
+      const v = Math.min(max, Math.max(min, +(S[key] + d).toFixed(6)));
+      inp.value = v; setVal(v); out.value = fmt(v, step); out.select();
+    }
+  });
   out.addEventListener('focus', () => out.select());
   inp.addEventListener('input', () => setVal(parseFloat(inp.value)));
 }
