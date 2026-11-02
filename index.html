@@ -113,6 +113,7 @@ input[type=color]::-webkit-color-swatch{border:0;border-radius:50%}
 input[type=color]::-moz-color-swatch{border:0;border-radius:50%}
 
 .hint{color:var(--muted);font-size:11.5px;line-height:1.45;margin:0}
+.sec-inner{display:flex;flex-direction:column;gap:12px}
 .sublabel{font-size:11.5px;font-weight:600;color:var(--muted);margin-top:4px}
 .saverow{display:flex;gap:6px}
 .saverow input{flex:1;min-width:0;font:inherit;font-size:12.5px;padding:6px 13px;border-radius:999px;border:0;background:var(--fill);color:var(--ink)}
@@ -218,10 +219,14 @@ input[type=color]::-moz-color-swatch{border:0;border-radius:50%}
         <div class="btns">
           <button id="exSvg" class="primary">SVG</button>
           <button id="exPng">PNG</button>
-          <button id="exRec">Record WebM</button>
         </div>
         <label class="check"><input type="checkbox" id="transparent">Transparent background</label>
         <p class="hint">SVG keeps the two layers as separate groups (layer-a, layer-b), one path per line, ready for Illustrator, Figma or a plotter.</p>
+        <div class="sublabel">Video</div>
+        <div class="sec-inner" id="s-rec"></div>
+        <label class="check"><input type="checkbox" id="recAuto">Length: one seamless loop</label>
+        <div class="btns"><button id="exRec" class="primary">Record WebM</button></div>
+        <p class="hint" id="recInfo"></p>
       </div>
     </details>
   </aside>
@@ -243,6 +248,7 @@ const DEF = {
   contrast:1.2, gamma:1, blur:2, detail:360, invert:false,
   show:'both', paper:'#f5f4ef', inkA:'#111111', inkB:'#111111',
   res:1600, drift:0,
+  vidRes:1080, recDur:6, recAuto:true,
   spinMode:'rotate', swing:20, angleSpd:8, bAngleSpd:3, offsetASpd:0.5
 };
 const ANIM = { angle:false, bAngle:false, offsetA:false };
@@ -282,7 +288,9 @@ const RANGES = [
   ['s-img','gamma','Gamma',0.2,3,0.05,''],
   ['s-img','blur','Smooth',0,10,0.1,''],
   ['s-img','detail','Detail',80,800,10,''],
-  ['s-out','res','Output size',800,4000,100,'px'],
+  ['s-out','res','Image size',800,4000,100,'px'],
+  ['s-rec','vidRes','Video size',480,3840,10,'px'],
+  ['s-rec','recDur','Duration',1,120,0.5,'s'],
   ['s-motion','swing','Swing range',1,90,1,'°','linear'],
   ['s-motion','drift','Drift',-40,40,0.5,'px/s']
 ];
@@ -357,12 +365,13 @@ function updateVis(){
   document.querySelectorAll('[data-only],[data-spd]').forEach(el => {
     el.hidden = !!((el.dataset.only && el.dataset.only !== S.type) || (el.dataset.spd && !ANIM[el.dataset.spd]));
   });
+  if (rangeEls.recDur) rangeEls.recDur.inp.closest('.row').hidden = S.recAuto;
 }
 function syncUI(){
   for (const k in rangeEls) { const r = rangeEls[k]; r.inp.value = S[k]; fill(r.inp); if (document.activeElement !== r.out) r.out.value = fmt(S[k], r.step); }
   $('t-' + S.type).checked = true; $('sh-' + S.show).checked = true;
   $('c-paper').value = S.paper; $('c-inkA').value = S.inkA; $('c-inkB').value = S.inkB;
-  $('invert').checked = S.invert;
+  $('invert').checked = S.invert; $('recAuto').checked = S.recAuto;
   $('sm-' + S.spinMode).checked = true;
   updateVis();
 }
@@ -675,40 +684,76 @@ $('exPng').addEventListener('click', () => {
   cv.toBlob(b => { saveFile(`moire-${stamp()}.png`, b); dirty = true; }, 'image/png');
 });
 
-let rec = null;
+let rec = null, recTimer = null, savedRes = null;
+const videoRunning = () => isVideo && !video.paused;
+function loopCycle(){
+  const cycles = [];
+  for (const k of ['angle','bAngle']) if (ANIM[k] && S.type === 'linear') {
+    const sp = Math.max(0.01, Math.abs(S[k + 'Spd']));
+    cycles.push(S.spinMode === 'rotate' ? 180 / sp : 4 * S.swing / sp);
+  }
+  if (ANIM.offsetA) cycles.push(1 / Math.max(0.01, Math.abs(S.offsetASpd)));
+  if (S.drift) cycles.push(S.period / Math.abs(S.drift));
+  return cycles.length ? Math.max(...cycles) : 0;
+}
+// What a recording would be right now: { dur, note } or { error }
+function recPlan(){
+  if (!S.recAuto) return { dur: S.recDur, note: videoRunning() ? 'video restarts from the beginning' : (isVideo ? 'video stays frozen on this frame' : '') };
+  if (videoRunning()) {
+    const d = isFinite(video.duration) && video.duration > 0 ? video.duration : 10;
+    return { dur: Math.min(d, 120), note: 'one pass of the video' };
+  }
+  const c = loopCycle();
+  if (!c) return { error: isVideo
+    ? 'The video is paused and nothing is animating. Press a play button or set Drift, or turn off "one seamless loop" and set a duration.'
+    : 'Nothing is animating. Press a play button (Angle, Angle B, A phase) or set Drift, or turn off "one seamless loop" and set a duration.' };
+  const dur = Math.min(c * Math.max(1, Math.ceil(3 / c)), 120);
+  return { dur, note: (isVideo ? 'video frozen, ' : '') + 'moiré loops seamlessly' };
+}
+function recSize(){
+  const r = srcW / srcH; let w, h;
+  if (r >= 1) { w = S.vidRes; h = Math.round(S.vidRes / r); } else { h = S.vidRes; w = Math.round(S.vidRes * r); }
+  return [Math.max(2, w & ~1), Math.max(2, h & ~1)];
+}
+function updateRecInfo(){
+  if (rec) return;
+  const p = recPlan(), [w, h] = recSize();
+  $('recInfo').textContent = p.error ? p.error : `${w}×${h} · ${p.dur.toFixed(1)} s${p.note ? ' · ' + p.note : ''}`;
+}
+setInterval(updateRecInfo, 400);
+$('recAuto').addEventListener('change', e => { S.recAuto = e.target.checked; updateVis(); updateRecInfo(); });
+
+function endRecording(){
+  clearTimeout(recTimer); recTimer = null;
+  if (savedRes != null) { S.res = savedRes; savedRes = null; resize(); dirty = true; }
+  recording = false;
+  $('exRec').classList.remove('on'); $('exRec').textContent = 'Record WebM';
+}
 $('exRec').addEventListener('click', () => {
   if (rec) { rec.stop(); return; }
   if (!window.MediaRecorder || !cv.captureStream) { toast('This browser cannot record the canvas. Try Chrome or Firefox.'); return; }
-  let dur;
-  if (isVideo) { dur = video.duration; if (!isFinite(dur) || dur <= 0) dur = 10; }
-  else {
-    const cycles = [];
-    for (const k of ['angle','bAngle']) if (ANIM[k] && S.type === 'linear') {
-      const sp = Math.max(0.01, Math.abs(S[k + 'Spd']));
-      cycles.push(S.spinMode === 'rotate' ? 180 / sp : 4 * S.swing / sp);
-    }
-    if (ANIM.offsetA) cycles.push(1 / Math.max(0.01, Math.abs(S.offsetASpd)));
-    if (S.drift) cycles.push(S.period / Math.abs(S.drift));
-    if (!cycles.length) { toast('Press a play button (Angle, Angle B, A phase) or set Drift to animate a still image, or load a video.'); return; }
-    const cycle = Math.max(...cycles);
-    dur = cycle * Math.max(1, Math.ceil(3 / cycle));
-  }
-  dur = Math.min(dur, 60);
+  const plan = recPlan();
+  if (plan.error) { toast(plan.error); return; }
   const mime = ['video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'].find(m => MediaRecorder.isTypeSupported(m));
   if (!mime) { toast('WebM recording is not supported in this browser.'); return; }
+
+  // render at the video size for the length of the recording
+  savedRes = S.res; S.res = S.vidRes; resize(); dirty = true; render(performance.now(), false);
+  const px = cv.width * cv.height;
   const stream = cv.captureStream(30), chunks = [];
-  rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 16e6 });
+  rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: Math.round(Math.min(40e6, Math.max(6e6, px * 8))) });
   rec.ondataavailable = e => e.data.size && chunks.push(e.data);
   rec.onstop = () => {
-    recording = false; rec = null; clearTimeout(timer);
-    $('exRec').classList.remove('on'); $('exRec').textContent = 'Record WebM';
+    rec = null; endRecording();
     saveFile(`moire-${stamp()}.webm`, new Blob(chunks, { type: 'video/webm' }));
   };
-  if (isVideo) { video.currentTime = 0; video.play(); $('vplay').textContent = 'Pause video'; }
+  // a playing source video restarts from the top; a paused one stays frozen
+  if (videoRunning()) { video.currentTime = 0; video.play(); $('vplay').textContent = 'Pause video'; }
   recording = true; dirty = true;
   rec.start(250);
-  $('exRec').classList.add('on'); $('exRec').innerHTML = `<span class="rec-dot"></span>Stop · ${dur.toFixed(1)}s`;
-  const timer = setTimeout(() => rec && rec.stop(), dur * 1000);
+  $('exRec').classList.add('on'); $('exRec').innerHTML = `<span class="rec-dot"></span>Stop · ${plan.dur.toFixed(1)}s`;
+  $('recInfo').textContent = `Recording ${cv.width}×${cv.height}…`;
+  recTimer = setTimeout(() => rec && rec.stop(), plan.dur * 1000);
 });
 
 let tt;
