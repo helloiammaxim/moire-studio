@@ -1,0 +1,569 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Moiré Line Studio</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: full-height workbench — artwork stage on the left, scrolling control rail on the right; stacks on phones */
+:root{
+  --bg:#eceef3; --panel:#f8f9fb; --ink:#14161d; --muted:#5b6271; --line:#d4d8e1; --accent:#2f43e8; --accent-ink:#ffffff; --stage:#e1e4eb;
+  --f-display:"Bricolage Grotesque", "Helvetica Neue", Arial, sans-serif;
+  --f-body:"IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+  --f-mono:"JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0f1117; --panel:#161922; --ink:#e7e9ef; --muted:#9299a9; --line:#2a2f3b; --accent:#8e9cff; --accent-ink:#0f1117; --stage:#0a0c11; color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0f1117; --panel:#161922; --ink:#e7e9ef; --muted:#9299a9; --line:#2a2f3b; --accent:#8e9cff; --accent-ink:#0f1117; --stage:#0a0c11; color-scheme:dark}
+
+html,body{height:100%}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:13px;
+  padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px));padding-block:16px;box-sizing:border-box}
+*{box-sizing:border-box}
+.app{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:16px;height:100%}
+.stage{position:relative;background:var(--stage);border-radius:6px;display:flex;align-items:center;justify-content:center;min-width:0;min-height:0;overflow:hidden;padding:20px}
+.stage canvas{max-width:100%;max-height:100%;display:block;box-shadow:0 1px 2px rgba(0,0,0,.12),0 8px 30px rgba(0,0,0,.10)}
+.stage.drag{outline:2px dashed var(--accent);outline-offset:-10px}
+.readout{position:absolute;left:12px;bottom:10px;font-family:var(--f-mono);font-size:11px;color:var(--muted);display:flex;gap:14px;flex-wrap:wrap;font-variant-numeric:tabular-nums;pointer-events:none}
+.readout b{color:var(--ink);font-weight:500}
+.vidbar{position:absolute;right:12px;bottom:8px;display:flex;gap:6px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;overflow-y:auto;min-height:0;display:flex;flex-direction:column}
+.head{padding:16px 16px 12px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:10px}
+h1{font-family:var(--f-display);font-weight:700;font-size:22px;letter-spacing:-.01em;margin:0;line-height:1;text-wrap:balance}
+h1 span{color:var(--accent)}
+.sub{color:var(--muted);margin:0;line-height:1.45}
+details{border-bottom:1px solid var(--line)}
+summary{list-style:none;cursor:pointer;padding:11px 16px;font-size:11px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);display:flex;justify-content:space-between}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"+";font-family:var(--f-mono)}
+details[open] summary::after{content:"–"}
+.sec{padding:2px 16px 14px;display:flex;flex-direction:column;gap:10px}
+.row{display:grid;grid-template-columns:88px minmax(0,1fr) 48px 28px;align-items:center;gap:8px}
+.row.sub label{color:var(--muted);padding-left:10px;font-size:11.5px}
+.abtn{width:28px;height:24px;padding:0;display:grid;place-items:center;font-size:10px;line-height:1}
+.abtn svg{width:10px;height:10px;fill:currentColor}
+.row label{color:var(--ink);font-size:12px}
+.row output{font-family:var(--f-mono);font-size:11px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
+input[type=range]{width:100%;accent-color:var(--accent);margin:0}
+.seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;border:1px solid var(--line);border-radius:5px;overflow:hidden}
+.seg input{position:absolute;opacity:0;pointer-events:none}
+.seg label{text-align:center;padding:6px 4px;cursor:pointer;font-size:12px;color:var(--muted);border-left:1px solid var(--line)}
+.seg label:first-of-type{border-left:0}
+.seg input:checked + label{background:var(--ink);color:var(--panel)}
+.seg input:focus-visible + label{outline:2px solid var(--accent);outline-offset:-2px}
+.btns{display:flex;flex-wrap:wrap;gap:6px}
+button{font:inherit;font-size:12px;font-weight:500;padding:7px 11px;border-radius:5px;border:1px solid var(--line);background:transparent;color:var(--ink);cursor:pointer}
+button:hover{border-color:var(--ink)}
+button:focus-visible,summary:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+button.on{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+button:disabled{opacity:.45;cursor:not-allowed}
+.check{display:flex;gap:8px;align-items:center;font-size:12px}
+.check input{accent-color:var(--accent)}
+.colors{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.colors label{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--muted)}
+input[type=color]{width:100%;height:28px;border:1px solid var(--line);border-radius:4px;padding:2px;background:transparent}
+.hint{color:var(--muted);font-size:11.5px;line-height:1.45;margin:0}
+.file{position:relative}
+.file input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom, 0px));transform:translateX(-50%);background:var(--ink);color:var(--panel);padding:8px 14px;border-radius:5px;font-size:12px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:5}
+.toast.show{opacity:1}
+.rec-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#e5383b;margin-right:6px;vertical-align:1px}
+@media (max-width:820px){
+  html,body{height:auto}
+  .app{grid-template-columns:minmax(0,1fr);height:auto}
+  .stage{height:62vh;padding:12px}
+  .panel{overflow:visible}
+}
+@media (prefers-reduced-motion: reduce){.toast{transition:none}}
+</style>
+
+<div class="app">
+  <div class="stage" id="stage">
+    <canvas id="cv" width="1600" height="1200" aria-label="Moiré render"></canvas>
+    <div class="readout" id="readout"></div>
+    <div class="vidbar" id="vidbar" hidden><button id="vplay">Pause video</button></div>
+  </div>
+
+  <aside class="panel">
+    <div class="head">
+      <h1>Moiré <span>Line</span> Studio</h1>
+      <p class="sub">Two line gratings. The second is bent by the brightness of your image, and where they cross, the picture appears as interference.</p>
+      <div class="btns">
+        <span class="file"><button class="primary" tabindex="-1">Load image or video</button><input id="file" type="file" accept="image/*,video/*" aria-label="Load image or video"></span>
+        <button id="sampleBtn">Sample</button>
+      </div>
+      <p class="hint" id="srcName">Showing the built-in sample. You can also drop or paste a file.</p>
+    </div>
+
+    <details open><summary>Presets</summary>
+      <div class="sec"><div class="btns" id="presets"></div></div>
+    </details>
+
+    <details open><summary>Grating</summary>
+      <div class="sec" id="s-grating">
+        <div class="seg" role="radiogroup" aria-label="Grating type">
+          <input type="radio" name="type" id="t-linear" value="linear"><label for="t-linear">Lines</label>
+          <input type="radio" name="type" id="t-radial" value="radial"><label for="t-radial">Rings</label>
+        </div>
+      </div>
+    </details>
+
+    <details open><summary>Layer B · interference</summary>
+      <div class="sec" id="s-b"></div>
+    </details>
+
+    <details><summary>Image response</summary>
+      <div class="sec" id="s-img"></div>
+    </details>
+
+    <details open><summary>Display &amp; colour</summary>
+      <div class="sec" id="s-disp">
+        <div class="seg" role="radiogroup" aria-label="Visible layers">
+          <input type="radio" name="show" id="sh-both" value="both"><label for="sh-both">A + B</label>
+          <input type="radio" name="show" id="sh-a" value="a"><label for="sh-a">A only</label>
+          <input type="radio" name="show" id="sh-b" value="b"><label for="sh-b">B only</label>
+        </div>
+        <div class="colors">
+          <label>Paper<input type="color" id="c-paper"></label>
+          <label>Ink A<input type="color" id="c-inkA"></label>
+          <label>Ink B<input type="color" id="c-inkB"></label>
+        </div>
+      </div>
+    </details>
+
+    <details><summary>Motion</summary>
+      <div class="sec" id="s-motion">
+        <p class="hint">The play buttons beside Angle, Angle B and A phase animate those values, each with its own speed. You can still drag the sliders while they run. Angles either rotate continuously or swing back and forth:</p>
+        <div class="seg" role="radiogroup" aria-label="Angle motion" data-only="linear">
+          <input type="radio" name="spinM" id="sm-rotate" value="rotate"><label for="sm-rotate">Rotate</label>
+          <input type="radio" name="spinM" id="sm-swing" value="swing"><label for="sm-swing">Swing</label>
+        </div>
+        <p class="hint">Drift slides layer A sideways at a fixed speed. Recordings capture the longest active cycle, so equal or whole-number speed ratios loop cleanly.</p>
+      </div>
+    </details>
+
+    <details open><summary>Export</summary>
+      <div class="sec" id="s-out">
+        <div class="btns">
+          <button id="exSvg" class="primary">SVG</button>
+          <button id="exPng">PNG</button>
+          <button id="exRec">Record WebM</button>
+        </div>
+        <label class="check"><input type="checkbox" id="transparent">Transparent background</label>
+        <p class="hint">SVG keeps the two layers as separate groups (layer-a, layer-b), one path per line, ready for Illustrator, Figma or a plotter.</p>
+      </div>
+    </details>
+  </aside>
+</div>
+<video id="vid" muted loop playsinline hidden></video>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+(() => {
+const $ = id => document.getElementById(id);
+const cv = $('cv'), ctx = cv.getContext('2d');
+const lumC = document.createElement('canvas');
+const lctx = lumC.getContext('2d', { willReadFrequently: true });
+const video = $('vid');
+
+const DEF = {
+  type:'linear', period:6, angle:30, width:1.7, step:2.5, offsetA:0,
+  ratio:1.02, bAngle:1.5, bAmp:1.2, aAmp:0, cx:50, cy:50, bcx:53, bcy:50,
+  contrast:1.2, gamma:1, blur:2, detail:360, invert:false,
+  show:'both', paper:'#f5f4ef', inkA:'#111111', inkB:'#111111',
+  res:1600, drift:0,
+  spinMode:'rotate', swing:20, angleSpd:8, bAngleSpd:3, offsetASpd:0.5
+};
+const ANIM = { angle:false, bAngle:false, offsetA:false };
+const AST = { angle:{t:0,prev:0}, bAngle:{t:0,prev:0}, offsetA:{t:0,prev:0} };
+const PLAY = '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2 1l7 4-7 4z"/></svg>';
+const STOP = '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2 2h6v6H2z"/></svg>';
+const S = { ...DEF };
+
+const PRESETS = {
+  'Contour fringes': { type:'linear', period:6, angle:30, width:1.7, ratio:1.02, bAngle:1.5, bAmp:1.2, aAmp:0, show:'both' },
+  'Hidden image':    { type:'linear', period:5, angle:0, width:2.4, ratio:1, bAngle:0, bAmp:0.5, aAmp:0, show:'both' },
+  'Split shift':     { type:'linear', period:6, angle:45, width:2.2, ratio:1, bAngle:0, bAmp:0.35, aAmp:-0.35, show:'both' },
+  'Engraving':       { type:'linear', period:6.5, angle:-15, width:1.8, ratio:1, bAngle:0, bAmp:1.6, aAmp:0, show:'b' },
+  'Rings':           { type:'radial', period:6, width:1.6, ratio:1, cx:50, cy:50, bcx:54, bcy:48, bAmp:0.9, aAmp:0, show:'both' },
+  'Ring contours':   { type:'radial', period:5, width:1.4, ratio:1.03, cx:50, cy:50, bcx:50, bcy:50, bAmp:2, aAmp:0, show:'both' }
+};
+
+// [section, key, label, min, max, step, unit, only]
+const RANGES = [
+  ['s-grating','period','Period',2,40,0.5,'px'],
+  ['s-grating','angle','Angle',-90,90,0.5,'°','linear'],
+  ['s-grating','angleSpd','Speed',-90,90,0.5,'°/s','linear','angle'],
+  ['s-grating','cx','Centre X',0,100,0.5,'%','radial'],
+  ['s-grating','cy','Centre Y',0,100,0.5,'%','radial'],
+  ['s-grating','width','Line width',0.3,12,0.1,'px'],
+  ['s-grating','step','Sampling',0.75,8,0.25,'px'],
+  ['s-grating','offsetA','A phase',0,1,0.01,''],
+  ['s-grating','offsetASpd','Speed',-3,3,0.05,'/s',null,'offsetA'],
+  ['s-b','bAmp','Displace B',-3,3,0.01,'p'],
+  ['s-b','aAmp','Displace A',-3,3,0.01,'p'],
+  ['s-b','ratio','Period B',0.8,1.2,0.002,'×'],
+  ['s-b','bAngle','Angle B',-90,90,0.1,'°','linear'],
+  ['s-b','bAngleSpd','Speed',-90,90,0.5,'°/s','linear','bAngle'],
+  ['s-b','bcx','B centre X',0,100,0.5,'%','radial'],
+  ['s-b','bcy','B centre Y',0,100,0.5,'%','radial'],
+  ['s-img','contrast','Contrast',0.2,4,0.05,''],
+  ['s-img','gamma','Gamma',0.2,3,0.05,''],
+  ['s-img','blur','Smooth',0,10,0.1,''],
+  ['s-img','detail','Detail',80,800,10,''],
+  ['s-out','res','Output size',800,4000,100,'px'],
+  ['s-motion','swing','Swing range',1,90,1,'°','linear'],
+  ['s-motion','drift','Drift',-40,40,0.5,'px/s']
+];
+const fmt = (v, step) => step >= 1 ? String(Math.round(v)) : step >= 0.1 ? v.toFixed(1) : step >= 0.01 ? v.toFixed(2) : v.toFixed(3);
+
+const rangeEls = {};
+for (const [sec, key, label, min, max, step, unit, only, spdOf] of RANGES) {
+  const row = document.createElement('div');
+  row.className = spdOf ? 'row sub' : 'row'; if (only) row.dataset.only = only; if (spdOf) row.dataset.spd = spdOf;
+  const id = 'r-' + key;
+  const extra = key in ANIM ? `<button class="abtn" id="a-${key}" aria-label="Animate ${label}" title="Animate ${label}">${PLAY}</button>` : '<span></span>';
+  row.innerHTML = `<label for="${id}">${label}</label><input type="range" id="${id}" min="${min}" max="${max}" step="${step}"><output for="${id}"></output>${extra}`;
+  const host = $(sec);
+  if (sec === 's-out') host.insertBefore(row, host.firstChild); else host.appendChild(row);
+  const inp = row.querySelector('input'), out = row.querySelector('output');
+  rangeEls[key] = { inp, out, step, unit };
+  inp.addEventListener('input', () => {
+    S[key] = parseFloat(inp.value);
+    out.textContent = fmt(S[key], step) + unit;
+    if (['contrast','gamma','blur','detail'].includes(key)) needLum = true;
+    if (key === 'res') resize();
+    dirty = true;
+  });
+}
+// invert checkbox in image section
+{
+  const l = document.createElement('label'); l.className = 'check';
+  l.innerHTML = '<input type="checkbox" id="invert">Invert (light areas displace)';
+  $('s-img').appendChild(l);
+  $('invert').addEventListener('change', e => { S.invert = e.target.checked; needLum = true; dirty = true; });
+  const h = document.createElement('p'); h.className = 'hint';
+  h.textContent = 'Displacement is measured in periods (p). Dark pixels push layer B furthest. Half a period on equal gratings gives the classic hidden-image moiré.';
+  $('s-b').appendChild(h);
+}
+// per-parameter animation toggles
+function setAnim(key, on){
+  ANIM[key] = on; AST[key].t = 0; AST[key].prev = 0;
+  const b = $('a-' + key); b.classList.toggle('on', on); b.innerHTML = on ? STOP : PLAY;
+  b.setAttribute('aria-pressed', on);
+  updateVis(); dirty = true;
+}
+for (const k in ANIM) $('a-' + k).addEventListener('click', () => setAnim(k, !ANIM[k]));
+document.querySelectorAll('input[name=spinM]').forEach(r => r.addEventListener('change', () => { S.spinMode = r.value; for (const k in AST) { AST[k].t = 0; AST[k].prev = 0; } }));
+document.querySelectorAll('input[name=type]').forEach(r => r.addEventListener('change', () => { S.type = r.value; updateVis(); dirty = true; }));
+document.querySelectorAll('input[name=show]').forEach(r => r.addEventListener('change', () => { S.show = r.value; dirty = true; }));
+for (const k of ['paper','inkA','inkB']) $('c-' + k).addEventListener('input', e => { S[k] = e.target.value; dirty = true; });
+
+function updateVis(){
+  document.querySelectorAll('[data-only],[data-spd]').forEach(el => {
+    el.hidden = !!((el.dataset.only && el.dataset.only !== S.type) || (el.dataset.spd && !ANIM[el.dataset.spd]));
+  });
+}
+function syncUI(){
+  for (const k in rangeEls) { const r = rangeEls[k]; r.inp.value = S[k]; r.out.textContent = fmt(S[k], r.step) + r.unit; }
+  $('t-' + S.type).checked = true; $('sh-' + S.show).checked = true;
+  $('c-paper').value = S.paper; $('c-inkA').value = S.inkA; $('c-inkB').value = S.inkB;
+  $('invert').checked = S.invert;
+  $('sm-' + S.spinMode).checked = true;
+  updateVis();
+}
+const pres = $('presets');
+for (const name in PRESETS) {
+  const b = document.createElement('button'); b.textContent = name;
+  b.addEventListener('click', () => { Object.assign(S, PRESETS[name]); syncUI(); dirty = true; });
+  pres.appendChild(b);
+}
+
+/* ---------- source ---------- */
+let src = null, srcW = 4, srcH = 3, isVideo = false, lastVT = -1;
+let W = 1600, H = 1200, lum = null, lw = 2, lh = 2;
+let dirty = true, needLum = true;
+
+function makeSample(){
+  const c = document.createElement('canvas'); c.width = 1200; c.height = 900;
+  const g = c.getContext('2d');
+  let gr = g.createLinearGradient(0,0,0,900); gr.addColorStop(0,'#d9d9d9'); gr.addColorStop(0.62,'#f2f2f2'); gr.addColorStop(1,'#bdbdbd');
+  g.fillStyle = gr; g.fillRect(0,0,1200,900);
+  // floor shadows
+  g.filter = 'blur(28px)';
+  g.fillStyle = 'rgba(0,0,0,.55)';
+  g.beginPath(); g.ellipse(520,770,260,46,0,0,Math.PI*2); g.fill();
+  g.beginPath(); g.ellipse(900,760,130,26,0,0,Math.PI*2); g.fill();
+  g.filter = 'none';
+  const ball = (x,y,r) => {
+    const s = g.createRadialGradient(x - r*.42, y - r*.48, r*.05, x, y, r);
+    s.addColorStop(0,'#ffffff'); s.addColorStop(0.35,'#bdbdbd'); s.addColorStop(0.8,'#2c2c2c'); s.addColorStop(1,'#111');
+    g.fillStyle = s; g.beginPath(); g.arc(x,y,r,0,Math.PI*2); g.fill();
+    const rim = g.createRadialGradient(x + r*.5, y + r*.55, r*.1, x + r*.3, y + r*.3, r*1.05);
+    rim.addColorStop(0,'rgba(255,255,255,.28)'); rim.addColorStop(1,'rgba(255,255,255,0)');
+    g.fillStyle = rim; g.beginPath(); g.arc(x,y,r,0,Math.PI*2); g.fill();
+  };
+  ball(520,500,280); ball(900,640,130);
+  return c;
+}
+function setSource(el, w, h, label, vid){
+  src = el; srcW = w; srcH = h; isVideo = !!vid;
+  $('vidbar').hidden = !isVideo; $('srcName').textContent = label;
+  resize(); needLum = true; dirty = true;
+}
+function useSample(){ if (isVideo) video.pause(); const c = makeSample(); setSource(c, c.width, c.height, 'Showing the built-in sample. You can also drop or paste a file.', false); }
+
+function loadFile(f){
+  if (!f) return;
+  const url = URL.createObjectURL(f);
+  if (f.type.startsWith('video/')) {
+    video.src = url; video.muted = true; video.loop = true;
+    video.onloadeddata = () => { setSource(video, video.videoWidth, video.videoHeight, f.name, true); video.play().catch(()=>{}); $('vplay').textContent = 'Pause video'; };
+    video.onerror = () => toast('This video format cannot be decoded here. Try MP4 (H.264) or WebM.');
+  } else {
+    const img = new Image();
+    img.onload = () => { if (isVideo) video.pause(); setSource(img, img.naturalWidth, img.naturalHeight, f.name, false); };
+    img.onerror = () => toast('Could not read that image. Try PNG, JPG or WebP.');
+    img.src = url;
+  }
+}
+$('file').addEventListener('change', e => loadFile(e.target.files[0]));
+$('sampleBtn').addEventListener('click', useSample);
+$('vplay').addEventListener('click', () => {
+  if (video.paused) { video.play(); $('vplay').textContent = 'Pause video'; }
+  else { video.pause(); $('vplay').textContent = 'Play video'; }
+});
+const stage = $('stage');
+stage.addEventListener('dragover', e => { e.preventDefault(); stage.classList.add('drag'); });
+stage.addEventListener('dragleave', () => stage.classList.remove('drag'));
+stage.addEventListener('drop', e => { e.preventDefault(); stage.classList.remove('drag'); loadFile(e.dataTransfer.files[0]); });
+window.addEventListener('paste', e => { const f = [...(e.clipboardData?.files || [])][0]; if (f) loadFile(f); });
+
+function resize(){
+  const r = srcW / srcH;
+  if (r >= 1) { W = S.res; H = Math.round(S.res / r); } else { H = S.res; W = Math.round(S.res * r); }
+  W = Math.max(2, W & ~1); H = Math.max(2, H & ~1);
+  cv.width = W; cv.height = H;
+}
+
+function sampleLum(){
+  lw = Math.round(S.detail); lh = Math.max(2, Math.round(lw * srcH / srcW));
+  lumC.width = lw; lumC.height = lh;
+  lctx.fillStyle = '#fff'; lctx.fillRect(0,0,lw,lh);
+  const b = S.blur * lw / 400;
+  // pad by drawing slightly oversized so blur doesn't fade the borders to white
+  const pad = Math.ceil(b * 2);
+  lctx.filter = b > 0 ? `blur(${b}px)` : 'none';
+  try { lctx.drawImage(src, -pad, -pad, lw + pad*2, lh + pad*2); } catch(e) {}
+  lctx.filter = 'none';
+  const d = lctx.getImageData(0,0,lw,lh).data;
+  lum = new Float32Array(lw * lh);
+  for (let i = 0, j = 0; i < lum.length; i++, j += 4) {
+    let v = 1 - (0.2126*d[j] + 0.7152*d[j+1] + 0.0722*d[j+2]) / 255; // darkness
+    if (S.invert) v = 1 - v;
+    v = (v - 0.5) * S.contrast + 0.5;
+    v = v < 0 ? 0 : v > 1 ? 1 : v;
+    lum[i] = Math.pow(v, S.gamma);
+  }
+}
+function L(x, y){
+  let gx = x / W * (lw - 1), gy = y / H * (lh - 1);
+  gx = gx < 0 ? 0 : gx > lw - 1.001 ? lw - 1.001 : gx;
+  gy = gy < 0 ? 0 : gy > lh - 1.001 ? lh - 1.001 : gy;
+  const x0 = gx | 0, y0 = gy | 0, fx = gx - x0, fy = gy - y0, i = y0 * lw + x0;
+  const a = lum[i], b = lum[i+1], c = lum[i+lw], d = lum[i+lw+1];
+  return (a + (b - a) * fx) * (1 - fy) + (c + (d - c) * fx) * fy;
+}
+
+/* ---------- grating generators: return arrays of polylines ---------- */
+function genLinear(p, angDeg, phase, amp, step, margin){
+  const a = angDeg * Math.PI / 180, dx = Math.cos(a), dy = Math.sin(a), nx = -dy, ny = dx;
+  const cx = W/2, cy = H/2, R = Math.hypot(W, H)/2 + Math.abs(amp)*p + p*2;
+  const N = Math.ceil(R / p), out = [], ph = ((phase % p) + p) % p, ap = amp * p;
+  for (let n = -N; n <= N; n++) {
+    const v = n * p + ph; let cur = [];
+    for (let u = -R; u <= R; u += step) {
+      const bx = cx + dx*u + nx*v, by = cy + dy*u + ny*v;
+      const o = ap ? ap * L(bx, by) : 0;
+      const x = bx + nx*o, y = by + ny*o;
+      if (x > -margin && x < W + margin && y > -margin && y < H + margin) cur.push(x, y);
+      else if (cur.length) { if (cur.length >= 4) out.push(cur); cur = []; }
+    }
+    if (cur.length >= 4) out.push(cur);
+  }
+  return out;
+}
+function genRadial(cxp, cyp, p, phase, amp, step, margin){
+  const cx = cxp/100*W, cy = cyp/100*H, ap = amp * p;
+  const Rmax = Math.max(Math.hypot(cx, cy), Math.hypot(W-cx, cy), Math.hypot(cx, H-cy), Math.hypot(W-cx, H-cy)) + Math.abs(ap) + p;
+  const ph = ((phase % p) + p) % p, out = [];
+  for (let r = ph; r <= Rmax; r += p) {
+    if (r < p * 0.25) continue;
+    const segs = Math.max(12, Math.ceil(2 * Math.PI * r / step));
+    let cur = [], first = null;
+    for (let k = 0; k <= segs; k++) {
+      const t = k / segs * Math.PI * 2, c = Math.cos(t), s = Math.sin(t);
+      const bx = cx + r*c, by = cy + r*s;
+      const rr = r + (ap ? ap * L(bx, by) : 0);
+      const x = cx + rr*c, y = cy + rr*s;
+      if (x > -margin && x < W + margin && y > -margin && y < H + margin) cur.push(x, y);
+      else if (cur.length) { if (cur.length >= 4) out.push(cur); cur = []; }
+    }
+    if (cur.length >= 4) out.push(cur);
+  }
+  return out;
+}
+
+let layers = { a: [], b: [] }, stats = { lines: 0, pts: 0 };
+function generate(t){
+  const k = S.res / 1600;
+  const pA = S.period * k, pB = pA * S.ratio, step = Math.max(0.5, S.step * k), m = S.width * k + step;
+  const phase = S.offsetA * pA + (S.drift ? (t / 1000) * S.drift * k : 0);
+  if (S.type === 'linear') {
+    layers.a = S.show !== 'b' ? genLinear(pA, S.angle, phase, S.aAmp, step, m) : [];
+    layers.b = S.show !== 'a' ? genLinear(pB, S.angle + S.bAngle, 0, S.bAmp, step, m) : [];
+  } else {
+    layers.a = S.show !== 'b' ? genRadial(S.cx, S.cy, pA, phase, S.aAmp, step, m) : [];
+    layers.b = S.show !== 'a' ? genRadial(S.bcx, S.bcy, pB, 0, S.bAmp, step, m) : [];
+  }
+  let pts = 0; for (const l of layers.a) pts += l.length/2; for (const l of layers.b) pts += l.length/2;
+  stats = { lines: layers.a.length + layers.b.length, pts };
+}
+function drawLayer(lines, color, lwid){
+  ctx.strokeStyle = color; ctx.lineWidth = lwid; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  for (const l of lines) { ctx.moveTo(l[0], l[1]); for (let i = 2; i < l.length; i += 2) ctx.lineTo(l[i], l[i+1]); }
+  ctx.stroke();
+}
+function render(t, transparent){
+  if (!lum) return;
+  generate(t);
+  ctx.clearRect(0,0,W,H);
+  if (!transparent) { ctx.fillStyle = S.paper; ctx.fillRect(0,0,W,H); }
+  const lwid = S.width * S.res / 1600;
+  drawLayer(layers.a, S.inkA, lwid);
+  drawLayer(layers.b, S.inkB, lwid);
+  updateReadout();
+}
+function beat(){
+  const p1 = S.period, p2 = S.period * S.ratio;
+  const d = S.type === 'linear' ? S.bAngle * Math.PI / 180 : 0;
+  const den = Math.sqrt(Math.max(0, p1*p1 + p2*p2 - 2*p1*p2*Math.cos(d)));
+  if (den < 1e-6) return '∞';
+  return (p1 * p2 / den).toFixed(0) + 'px';
+}
+function updateReadout(){
+  $('readout').innerHTML = `<span>${W}×${H}</span><span>lines <b>${stats.lines}</b></span><span>points <b>${(stats.pts/1000).toFixed(0)}k</b></span><span>flat beat <b>${beat()}</b></span>`;
+}
+
+/* ---------- loop ---------- */
+let recording = false, lastT = null;
+const wrap = a => ((a + 90) % 180 + 180) % 180 - 90;
+function angleDelta(key, dt){
+  const sp = S[key + 'Spd'], st = AST[key];
+  if (S.spinMode === 'rotate') return sp * dt;
+  st.t += dt;
+  const period = 4 * S.swing / Math.max(0.01, Math.abs(sp));
+  const off = S.swing * Math.sin(2 * Math.PI * st.t / period) * Math.sign(sp || 1);
+  const d = off - st.prev; st.prev = off; return d;
+}
+function applyAnim(dt){
+  let changed = false;
+  if (S.type === 'linear') {
+    if (ANIM.angle) { const d = angleDelta('angle', dt); S.angle = wrap(S.angle + d); S.bAngle = wrap(S.bAngle - d); changed = true; }
+    if (ANIM.bAngle) { S.bAngle = wrap(S.bAngle + angleDelta('bAngle', dt)); changed = true; }
+  }
+  if (ANIM.offsetA) { S.offsetA = (((S.offsetA + S.offsetASpd * dt) % 1) + 1) % 1; changed = true; }
+  if (changed) for (const k of ['angle','bAngle','offsetA']) { const r = rangeEls[k]; r.inp.value = S[k]; r.out.textContent = fmt(S[k], r.step) + r.unit; }
+  return changed;
+}
+function frame(t){
+  const dt = lastT == null ? 0 : Math.min(0.1, (t - lastT) / 1000); lastT = t;
+  if (src && dt > 0 && applyAnim(dt)) dirty = true;
+  if (src) {
+    if (isVideo && video.readyState >= 2 && video.currentTime !== lastVT) { lastVT = video.currentTime; needLum = true; }
+    if (needLum) { sampleLum(); needLum = false; dirty = true; }
+    if (S.drift) dirty = true;
+    if (dirty) { render(t, false); dirty = false; }
+  }
+  requestAnimationFrame(frame);
+}
+
+/* ---------- export ---------- */
+const dlP = (window.claude && typeof window.claude.use === 'function') ? window.claude.use('downloads').catch(() => null) : Promise.resolve(null);
+async function saveFile(name, blob){
+  const dl = await dlP;
+  if (dl) {
+    try { await dl.save({ filename: name, data: blob }); toast('Saved ' + name); }
+    catch (e) {
+      if (e && e.code === 'declined') toast('Save cancelled');
+      else if (e && e.code === 'rate_limited') toast('A save prompt is already open. Try again in a moment.');
+      else toast('Could not save: ' + (e && e.message || 'unavailable here'));
+    }
+    return;
+  }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+const stamp = () => new Date().toISOString().slice(0,19).replace(/[-:T]/g,'');
+
+$('exSvg').addEventListener('click', () => {
+  generate(performance.now());
+  const lwid = (S.width * S.res / 1600).toFixed(2);
+  const path = l => { let s = 'M' + l[0].toFixed(1) + ' ' + l[1].toFixed(1); for (let i = 2; i < l.length; i += 2) s += 'L' + l[i].toFixed(1) + ' ' + l[i+1].toFixed(1); return `<path d="${s}"/>`; };
+  const bg = $('transparent').checked ? '' : `<rect width="${W}" height="${H}" fill="${S.paper}"/>`;
+  const svg = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">\n<defs><clipPath id="frame"><rect width="${W}" height="${H}"/></clipPath></defs>\n${bg}\n<g clip-path="url(#frame)" fill="none" stroke-width="${lwid}" stroke-linecap="round" stroke-linejoin="round">\n<g id="layer-a" stroke="${S.inkA}">${layers.a.map(path).join('')}</g>\n<g id="layer-b" stroke="${S.inkB}">${layers.b.map(path).join('')}</g>\n</g>\n</svg>`;
+  saveFile(`moire-${stamp()}.svg`, new Blob([svg], { type: 'image/svg+xml' }));
+});
+$('exPng').addEventListener('click', () => {
+  render(performance.now(), $('transparent').checked);
+  cv.toBlob(b => { saveFile(`moire-${stamp()}.png`, b); dirty = true; }, 'image/png');
+});
+
+let rec = null;
+$('exRec').addEventListener('click', () => {
+  if (rec) { rec.stop(); return; }
+  if (!window.MediaRecorder || !cv.captureStream) { toast('This browser cannot record the canvas. Try Chrome or Firefox.'); return; }
+  let dur;
+  if (isVideo) { dur = video.duration; if (!isFinite(dur) || dur <= 0) dur = 10; }
+  else {
+    const cycles = [];
+    for (const k of ['angle','bAngle']) if (ANIM[k] && S.type === 'linear') {
+      const sp = Math.max(0.01, Math.abs(S[k + 'Spd']));
+      cycles.push(S.spinMode === 'rotate' ? 180 / sp : 4 * S.swing / sp);
+    }
+    if (ANIM.offsetA) cycles.push(1 / Math.max(0.01, Math.abs(S.offsetASpd)));
+    if (S.drift) cycles.push(S.period / Math.abs(S.drift));
+    if (!cycles.length) { toast('Press a play button (Angle, Angle B, A phase) or set Drift to animate a still image, or load a video.'); return; }
+    const cycle = Math.max(...cycles);
+    dur = cycle * Math.max(1, Math.ceil(3 / cycle));
+  }
+  dur = Math.min(dur, 60);
+  const mime = ['video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'].find(m => MediaRecorder.isTypeSupported(m));
+  if (!mime) { toast('WebM recording is not supported in this browser.'); return; }
+  const stream = cv.captureStream(30), chunks = [];
+  rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 16e6 });
+  rec.ondataavailable = e => e.data.size && chunks.push(e.data);
+  rec.onstop = () => {
+    recording = false; rec = null; clearTimeout(timer);
+    $('exRec').classList.remove('on'); $('exRec').textContent = 'Record WebM';
+    saveFile(`moire-${stamp()}.webm`, new Blob(chunks, { type: 'video/webm' }));
+  };
+  if (isVideo) { video.currentTime = 0; video.play(); $('vplay').textContent = 'Pause video'; }
+  recording = true; dirty = true;
+  rec.start(250);
+  $('exRec').classList.add('on'); $('exRec').innerHTML = `<span class="rec-dot"></span>Stop · ${dur.toFixed(1)}s`;
+  const timer = setTimeout(() => rec && rec.stop(), dur * 1000);
+});
+
+let tt;
+function toast(msg){ const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(tt); tt = setTimeout(() => t.classList.remove('show'), 2600); }
+
+syncUI();
+useSample();
+requestAnimationFrame(frame);
+})();
+</script>
+
+</body></html>
