@@ -53,11 +53,15 @@ details[open] summary::after{transform:rotate(45deg) translate(-2px,-2px)}
 .sec{padding:0 14px 14px;display:flex;flex-direction:column;gap:12px}
 
 /* slider rows */
-.row{display:grid;grid-template-columns:86px minmax(0,1fr) 46px 26px;align-items:center;gap:10px}
+.row{display:grid;grid-template-columns:78px minmax(0,1fr) 64px 26px;align-items:center;gap:8px}
 .row label{color:var(--ink);font-size:12.5px}
 .row.sub{margin-top:-4px}
 .row.sub label{color:var(--muted);padding-left:12px;font-size:12px}
-.row output{font-family:var(--f-mono);font-size:11px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
+.num{display:flex;align-items:center;background:var(--fill);border-radius:7px;padding:0 6px 0 4px;height:24px;min-width:0}
+.num:focus-within{box-shadow:0 0 0 3px var(--accent-soft)}
+.num input{-moz-appearance:textfield;appearance:textfield;width:100%;min-width:0;border:0;background:transparent;color:var(--ink);font-family:var(--f-mono);font-size:11px;text-align:right;font-variant-numeric:tabular-nums;padding:0;outline:none}
+.num input::-webkit-outer-spin-button,.num input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.num i{font-style:normal;font-size:10px;color:var(--muted);margin-left:2px;white-space:nowrap}
 input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:22px;background:transparent;margin:0;cursor:pointer;--p:50%}
 input[type=range]::-webkit-slider-runnable-track{height:4px;border-radius:2px;background:linear-gradient(to right,var(--accent) var(--p),var(--track) var(--p))}
 input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;border-radius:50%;background:#fff;margin-top:-8px;box-shadow:0 0 0 .5px rgba(0,0,0,.08),0 2px 5px rgba(0,0,0,.22);transition:transform .12s ease}
@@ -289,18 +293,31 @@ for (const [sec, key, label, min, max, step, unit, only, spdOf] of RANGES) {
   row.className = spdOf ? 'row sub' : 'row'; if (only) row.dataset.only = only; if (spdOf) row.dataset.spd = spdOf;
   const id = 'r-' + key;
   const extra = key in ANIM ? `<button class="abtn" id="a-${key}" aria-label="Animate ${label}" title="Animate ${label}">${PLAY}</button>` : '<span></span>';
-  row.innerHTML = `<label for="${id}">${label}</label><input type="range" id="${id}" min="${min}" max="${max}" step="${step}"><output for="${id}"></output>${extra}`;
+  row.innerHTML = `<label for="${id}">${label}</label><input type="range" id="${id}" min="${min}" max="${max}" step="${step}"><span class="num"><input type="number" id="n-${key}" min="${min}" max="${max}" step="${step}" inputmode="decimal" aria-label="${label} value"><i>${unit}</i></span>${extra}`;
   const host = $(sec);
   if (sec === 's-out') host.insertBefore(row, host.firstChild); else host.appendChild(row);
-  const inp = row.querySelector('input'), out = row.querySelector('output');
+  const inp = row.querySelector('input[type=range]'), out = row.querySelector('input[type=number]');
   rangeEls[key] = { inp, out, step, unit };
-  inp.addEventListener('input', () => {
-    S[key] = parseFloat(inp.value);
-    out.textContent = fmt(S[key], step) + unit; fill(inp);
+  const setVal = v => {
+    S[key] = v; fill(inp);
+    if (document.activeElement !== out) out.value = fmt(v, step);
     if (['contrast','gamma','blur','detail'].includes(key)) needLum = true;
     if (key === 'res') resize();
     dirty = true;
-  });
+  };
+  const commitNum = final => {
+    let v = parseFloat(out.value);
+    if (!isFinite(v)) { if (final) out.value = fmt(S[key], step); return; }
+    v = Math.min(max, Math.max(min, v));
+    if (key === 'res' || key === 'detail') v = Math.round(v);
+    inp.value = v; setVal(v);
+    if (final) out.value = fmt(v, step);
+  };
+  out.addEventListener('input', () => commitNum(false));
+  out.addEventListener('change', () => commitNum(true));
+  out.addEventListener('keydown', e => { if (e.key === 'Enter') out.blur(); });
+  out.addEventListener('focus', () => out.select());
+  inp.addEventListener('input', () => setVal(parseFloat(inp.value)));
 }
 // invert checkbox in image section
 {
@@ -331,7 +348,7 @@ function updateVis(){
   });
 }
 function syncUI(){
-  for (const k in rangeEls) { const r = rangeEls[k]; r.inp.value = S[k]; fill(r.inp); r.out.textContent = fmt(S[k], r.step) + r.unit; }
+  for (const k in rangeEls) { const r = rangeEls[k]; r.inp.value = S[k]; fill(r.inp); if (document.activeElement !== r.out) r.out.value = fmt(S[k], r.step); }
   $('t-' + S.type).checked = true; $('sh-' + S.show).checked = true;
   $('c-paper').value = S.paper; $('c-inkA').value = S.inkA; $('c-inkB').value = S.inkB;
   $('invert').checked = S.invert;
@@ -600,11 +617,11 @@ function applyAnim(dt){
     if (ANIM.bAngle) { S.bAngle = wrap(S.bAngle + angleDelta('bAngle', dt)); changed = true; }
   }
   if (ANIM.offsetA) { S.offsetA = (((S.offsetA + S.offsetASpd * dt) % 1) + 1) % 1; changed = true; }
-  if (changed) for (const k of ['angle','bAngle','offsetA']) { const r = rangeEls[k]; r.inp.value = S[k]; fill(r.inp); r.out.textContent = fmt(S[k], r.step) + r.unit; }
+  if (changed) for (const k of ['angle','bAngle','offsetA']) { const r = rangeEls[k]; r.inp.value = S[k]; fill(r.inp); if (document.activeElement !== r.out) r.out.value = fmt(S[k], r.step); }
   return changed;
 }
 function frame(t){
-  const dt = lastT == null ? 0 : Math.min(0.1, (t - lastT) / 1000); lastT = t;
+  const dt = lastT == null ? 0 : Math.min(0.5, (t - lastT) / 1000); lastT = t;
   if (src && dt > 0 && applyAnim(dt)) dirty = true;
   if (src) {
     if (isVideo && video.readyState >= 2 && video.currentTime !== lastVT) { lastVT = video.currentTime; needLum = true; }
