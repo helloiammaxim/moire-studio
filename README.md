@@ -6,7 +6,7 @@ A browser tool that turns an image or video into vector moiré lines: two line g
 
 - Load an image or video, or drop/paste a file
 - Lines or rings, with presets for contour fringes, hidden image, engraving and more
-- Animate angle, angle B and phase
+- Animate any setting: press ▶ next to a slider and set From, To, Time and Ping-pong or Loop
 - Save, delete, export and import your own presets
 - Export SVG (separate layers, one path per line), PNG and WebM with its own video size and duration (seamless loop or fixed length)
 

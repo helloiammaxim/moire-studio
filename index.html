@@ -113,6 +113,14 @@ input[type=color]::-webkit-color-swatch{border:0;border-radius:50%}
 input[type=color]::-moz-color-swatch{border:0;border-radius:50%}
 
 .hint{color:var(--muted);font-size:11.5px;line-height:1.45;margin:0}
+.anim{background:var(--fill);border-radius:10px;padding:8px 10px 10px;display:flex;flex-direction:column;gap:8px;margin-top:-6px}
+.anrow{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.anrow label{display:flex;flex-direction:column;gap:3px;font-size:10.5px;font-weight:500;color:var(--muted)}
+.anim .num{background:var(--card)}
+.anim .num:hover{background:var(--card)}
+.seg.small{background:var(--card)}
+.seg.small label{padding:3px 4px;font-size:11.5px}
+.seg.small input:checked + label{background:var(--accent);color:var(--accent-ink);box-shadow:none}
 .sec-inner{display:flex;flex-direction:column;gap:12px}
 .sublabel{font-size:11.5px;font-weight:600;color:var(--muted);margin-top:4px}
 .saverow{display:flex;gap:6px}
@@ -205,12 +213,13 @@ input[type=color]::-moz-color-swatch{border:0;border-radius:50%}
 
     <details><summary>Motion</summary>
       <div class="sec" id="s-motion">
-        <p class="hint">The play buttons beside Angle, Angle B and A phase animate those values, each with its own speed. You can still drag the sliders while they run. Angles either rotate continuously or swing back and forth:</p>
-        <div class="seg" role="radiogroup" aria-label="Angle motion" data-only="linear">
-          <input type="radio" name="spinM" id="sm-rotate" value="rotate"><label for="sm-rotate">Rotate</label>
-          <input type="radio" name="spinM" id="sm-swing" value="swing"><label for="sm-swing">Swing</label>
+        <p class="hint">Press ▶ next to any setting to animate it. It moves between From and To, taking Time seconds per cycle. Ping-pong goes there and back smoothly. Loop runs one way and starts over: a 180° span on Rotation or a span of 1 on Shift A/B makes it seamless. Stopping puts the setting back to From.</p>
+        <div class="btns" id="animList"></div>
+        <div class="btns">
+          <button id="animPause">Pause</button>
+          <button id="animRestart">Restart</button>
+          <button id="animStop">Stop all</button>
         </div>
-        <p class="hint">Drift slides layer A sideways at a fixed speed. Recordings capture the longest active cycle, so equal or whole-number speed ratios loop cleanly.</p>
       </div>
     </details>
 
@@ -243,16 +252,18 @@ const lctx = lumC.getContext('2d', { willReadFrequently: true });
 const video = $('vid');
 
 const DEF = {
-  type:'linear', period:6, angle:30, width:1.7, step:2.5, offsetA:0,
+  type:'linear', period:6, angle:30, width:1.7, step:2.5, offsetA:0, offsetB:0,
   ratio:1.02, bAngle:1.5, bAmp:1.2, aAmp:0, cx:50, cy:50, bcx:53, bcy:50,
   contrast:1.2, gamma:1, blur:2, detail:360, invert:false,
   show:'both', paper:'#f5f4ef', inkA:'#111111', inkB:'#111111',
-  res:1600, drift:0,
-  vidRes:1080, recDur:6, recAuto:true,
-  spinMode:'rotate', swing:20, angleSpd:8, bAngleSpd:3, offsetASpd:0.5
+  res:1600,
+  vidRes:1080, recDur:6, recAuto:true
 };
-const ANIM = { angle:false, bAngle:false, offsetA:false };
-const AST = { angle:{t:0,prev:0}, bAngle:{t:0,prev:0}, offsetA:{t:0,prev:0} };
+// per-parameter animation: AN[key] = { on, from, to, dur, mode: 'pingpong' | 'loop' }
+const AN = {};
+const NOANIM = new Set(['res','vidRes','recDur']);
+const WRAPK = { angle:180, bAngle:180, offsetA:1, offsetB:1 };
+let animClock = 0, animPaused = false;
 const PLAY = '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2 1l7 4-7 4z"/></svg>';
 const STOP = '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2 2h6v6H2z"/></svg>';
 const S = { ...DEF };
@@ -269,45 +280,41 @@ const PRESETS = {
 // [section, key, label, min, max, step, unit, only]
 const RANGES = [
   ['s-grating','period','Period',2,40,0.5,'px'],
-  ['s-grating','angle','Angle',-90,90,0.5,'°','linear'],
-  ['s-grating','angleSpd','Speed',-90,90,0.5,'°/s','linear','angle'],
+  ['s-grating','angle','Rotation',-90,90,0.5,'°','linear'],
   ['s-grating','cx','Centre X',0,100,0.5,'%','radial'],
   ['s-grating','cy','Centre Y',0,100,0.5,'%','radial'],
   ['s-grating','width','Line width',0.3,12,0.1,'px'],
   ['s-grating','step','Sampling',0.75,8,0.25,'px'],
-  ['s-grating','offsetA','A phase',0,1,0.01,''],
-  ['s-grating','offsetASpd','Speed',-3,3,0.05,'/s',null,'offsetA'],
+  ['s-grating','offsetA','Shift A',0,1,0.01,''],
   ['s-b','bAmp','Displace B',-3,3,0.01,'p'],
   ['s-b','aAmp','Displace A',-3,3,0.01,'p'],
   ['s-b','ratio','Period B',0.8,1.2,0.002,'×'],
-  ['s-b','bAngle','Angle B',-90,90,0.1,'°','linear'],
-  ['s-b','bAngleSpd','Speed',-90,90,0.5,'°/s','linear','bAngle'],
+  ['s-b','bAngle','B twist',-90,90,0.1,'°','linear'],
   ['s-b','bcx','B centre X',0,100,0.5,'%','radial'],
   ['s-b','bcy','B centre Y',0,100,0.5,'%','radial'],
+  ['s-b','offsetB','Shift B',0,1,0.01,''],
   ['s-img','contrast','Contrast',0.2,4,0.05,''],
   ['s-img','gamma','Gamma',0.2,3,0.05,''],
   ['s-img','blur','Smooth',0,10,0.1,''],
   ['s-img','detail','Detail',80,800,10,''],
   ['s-out','res','Image size',800,4000,100,'px'],
   ['s-rec','vidRes','Video size',480,3840,10,'px'],
-  ['s-rec','recDur','Duration',1,120,0.5,'s'],
-  ['s-motion','swing','Swing range',1,90,1,'°','linear'],
-  ['s-motion','drift','Drift',-40,40,0.5,'px/s']
+  ['s-rec','recDur','Duration',1,120,0.5,'s']
 ];
 const fmt = (v, step) => step >= 1 ? String(Math.round(v)) : step >= 0.1 ? v.toFixed(1) : step >= 0.01 ? v.toFixed(2) : v.toFixed(3);
 
 const fill = inp => { const mn = +inp.min, mx = +inp.max; inp.style.setProperty('--p', ((inp.value - mn) / (mx - mn) * 100) + '%'); };
 const rangeEls = {};
-for (const [sec, key, label, min, max, step, unit, only, spdOf] of RANGES) {
+const parseNum = v => parseFloat(String(v).replace(',', '.').replace(/[^0-9.+\-eE]/g, ''));
+for (const [sec, key, label, min, max, step, unit, only] of RANGES) {
   const row = document.createElement('div');
-  row.className = spdOf ? 'row sub' : 'row'; if (only) row.dataset.only = only; if (spdOf) row.dataset.spd = spdOf;
+  row.className = 'row'; if (only) row.dataset.only = only;
   const id = 'r-' + key;
-  const extra = key in ANIM ? `<button class="abtn" id="a-${key}" aria-label="Animate ${label}" title="Animate ${label}">${PLAY}</button>` : '<span></span>';
+  const extra = !NOANIM.has(key) ? `<button class="abtn" id="a-${key}" aria-label="Animate ${label}" title="Animate ${label}">${PLAY}</button>` : '<span></span>';
   row.innerHTML = `<label for="${id}">${label}</label><input type="range" id="${id}" min="${min}" max="${max}" step="${step}"><span class="num"><input type="text" class="numv" id="n-${key}" inputmode="decimal" autocomplete="off" spellcheck="false" aria-label="${label} value"><i>${unit}</i></span>${extra}`;
   const host = $(sec);
   if (sec === 's-out') host.insertBefore(row, host.firstChild); else host.appendChild(row);
   const inp = row.querySelector('input[type=range]'), out = row.querySelector('input.numv');
-  rangeEls[key] = { inp, out, step, unit };
   const setVal = v => {
     S[key] = v; fill(inp);
     if (document.activeElement !== out) out.value = fmt(v, step);
@@ -315,8 +322,10 @@ for (const [sec, key, label, min, max, step, unit, only, spdOf] of RANGES) {
     if (key === 'res') resize();
     dirty = true;
   };
+  rangeEls[key] = { inp, out, step, unit, min, max, label, only, setVal };
+  if (!NOANIM.has(key)) buildAnimPanel(key, row);
   const commitNum = final => {
-    let v = parseFloat(String(out.value).replace(',', '.').replace(/[^0-9.+\-eE]/g, ''));
+    let v = parseNum(out.value);
     if (!isFinite(v)) { if (final) out.value = fmt(S[key], step); return; }
     v = Math.min(max, Math.max(min, v));
     if (key === 'res' || key === 'detail') v = Math.round(v);
@@ -345,25 +354,119 @@ for (const [sec, key, label, min, max, step, unit, only, spdOf] of RANGES) {
   $('s-img').appendChild(l);
   $('invert').addEventListener('change', e => { S.invert = e.target.checked; needLum = true; dirty = true; });
   const h = document.createElement('p'); h.className = 'hint';
-  h.textContent = 'Displacement is measured in periods (p). Dark pixels push layer B furthest. Half a period on equal gratings gives the classic hidden-image moiré.';
+  h.textContent = 'B twist turns layer B against layer A: small changes here move the fringes the most. Rotation turns both layers together. Displacement is measured in periods (p); dark pixels push furthest.';
   $('s-b').appendChild(h);
 }
-// per-parameter animation toggles
-function setAnim(key, on){
-  ANIM[key] = on; AST[key].t = 0; AST[key].prev = 0;
-  const b = $('a-' + key); b.classList.toggle('on', on); b.innerHTML = on ? STOP : PLAY;
-  b.setAttribute('aria-pressed', on);
-  updateVis(); dirty = true;
+// ---------- per-parameter animation ----------
+function animDefaults(key){
+  const r = rangeEls[key], v = S[key], span = r.max - r.min;
+  if (key === 'angle') return { on:false, from:v, to:v + 180, dur:20, mode:'loop' };
+  if (key === 'bAngle') return { on:false, from:+(v - 3).toFixed(2), to:+(v + 3).toFixed(2), dur:8, mode:'pingpong' };
+  if (key === 'offsetA' || key === 'offsetB') return { on:false, from:v, to:v + 1, dur:2, mode:'loop' };
+  let to = v + span * 0.25; if (to > r.max) to = v - span * 0.25;
+  return { on:false, from:v, to:+Math.min(r.max, Math.max(r.min, to)).toFixed(4), dur:6, mode:'pingpong' };
 }
-for (const k in ANIM) $('a-' + k).addEventListener('click', () => setAnim(k, !ANIM[k]));
-document.querySelectorAll('input[name=spinM]').forEach(r => r.addEventListener('change', () => { S.spinMode = r.value; for (const k in AST) { AST[k].t = 0; AST[k].prev = 0; } }));
-document.querySelectorAll('input[name=type]').forEach(r => r.addEventListener('change', () => { S.type = r.value; updateVis(); dirty = true; }));
+function animValue(key, a){
+  const t = animClock - (a.t0 || 0);
+  const u = ((t % a.dur) + a.dur) % a.dur / a.dur;
+  const e = a.mode === 'loop' ? u : (1 - Math.cos(2 * Math.PI * u)) / 2;
+  let v = a.from + (a.to - a.from) * e;
+  if (key === 'angle' || key === 'bAngle') v = wrap(v);
+  else if (key === 'offsetA' || key === 'offsetB') v = ((v % 1) + 1) % 1;
+  else { const r = rangeEls[key]; v = Math.min(r.max, Math.max(r.min, v)); }
+  return v;
+}
+function buildAnimPanel(key, row){
+  const r = rangeEls[key], wrapK = key in WRAPK;
+  const box = document.createElement('div'); box.className = 'anim'; box.id = 'an-' + key; box.hidden = true;
+  if (r.only) box.dataset.only = r.only;
+  const u = r.unit ? `<i>${r.unit}</i>` : '';
+  box.innerHTML = `<div class="anrow">
+      <label>From<span class="num"><input type="text" class="numv" id="af-${key}" inputmode="decimal" autocomplete="off" spellcheck="false">${u}</span></label>
+      <label>To<span class="num"><input type="text" class="numv" id="at-${key}" inputmode="decimal" autocomplete="off" spellcheck="false">${u}</span></label>
+      <label>Time<span class="num"><input type="text" class="numv" id="ad-${key}" inputmode="decimal" autocomplete="off" spellcheck="false"><i>s</i></span></label>
+    </div>
+    <div class="seg small" role="radiogroup" aria-label="${r.label} animation style">
+      <input type="radio" name="am-${key}" id="amp-${key}" value="pingpong"><label for="amp-${key}">Ping-pong</label>
+      <input type="radio" name="am-${key}" id="aml-${key}" value="loop"><label for="aml-${key}">Loop</label>
+    </div>`;
+  row.after(box);
+  const fields = { from:'af-', to:'at-', dur:'ad-' };
+  for (const f in fields) {
+    const el = box.querySelector('#' + fields[f] + key);
+    const commit = final => {
+      const a = AN[key]; if (!a) return;
+      let v = parseNum(el.value);
+      if (!isFinite(v)) { if (final) syncAnimPanel(key); return; }
+      if (f === 'dur') v = Math.min(120, Math.max(0.2, v));
+      else if (!wrapK) v = Math.min(r.max, Math.max(r.min, v));
+      a[f] = v; renderAnimList();
+      if (final) syncAnimPanel(key);
+    };
+    el.addEventListener('input', () => commit(false));
+    el.addEventListener('change', () => commit(true));
+    el.addEventListener('keydown', e => { if (e.key === 'Enter') el.blur(); });
+    el.addEventListener('focus', () => el.select());
+  }
+  box.querySelectorAll(`input[name=am-${key}]`).forEach(rb => rb.addEventListener('change', () => { if (AN[key]) { AN[key].mode = rb.value; renderAnimList(); } }));
+}
+function syncAnimPanel(key){
+  const a = AN[key]; if (!a) return; const st = rangeEls[key].step;
+  for (const [f, pre] of [['from','af-'],['to','at-']]) { const el = $(pre + key); if (document.activeElement !== el) el.value = fmt(a[f], st); }
+  const d = $('ad-' + key); if (document.activeElement !== d) d.value = fmt(a.dur, 0.1);
+  $((a.mode === 'loop' ? 'aml-' : 'amp-') + key).checked = true;
+}
+function setAnim(key, on){
+  if (!rangeEls[key] || NOANIM.has(key)) return;
+  if (!AN[key]) AN[key] = animDefaults(key);
+  AN[key].on = on;
+  if (on) { animPaused = false; AN[key].t0 = animClock; syncAnimPanel(key); }
+  else {                                   // put the setting back where the animation started
+    const a = AN[key], r = rangeEls[key];
+    let v = a.from;
+    if (key === 'angle' || key === 'bAngle') v = wrap(v);
+    else if (key === 'offsetA' || key === 'offsetB') v = ((v % 1) + 1) % 1;
+    else v = Math.min(r.max, Math.max(r.min, v));
+    r.inp.value = v; r.setVal(v);
+  }
+  const b = $('a-' + key); b.classList.toggle('on', on); b.innerHTML = on ? STOP : PLAY; b.setAttribute('aria-pressed', on);
+  updateVis(); renderAnimList(); dirty = true;
+}
+for (const key in rangeEls) if (!NOANIM.has(key)) $('a-' + key).addEventListener('click', () => setAnim(key, !(AN[key] && AN[key].on)));
+const activeAnims = () => Object.keys(AN).filter(k => AN[k].on && !(rangeEls[k].only && rangeEls[k].only !== S.type));
+function renderAnimList(){
+  const host = $('animList'); host.textContent = '';
+  const keys = activeAnims();
+  if (!keys.length) { const h = document.createElement('p'); h.className = 'hint'; h.textContent = 'Nothing is animating yet.'; host.appendChild(h); }
+  for (const k of keys) {
+    const a = AN[k], r = rangeEls[k];
+    const chip = document.createElement('span'); chip.className = 'chip';
+    const lb = document.createElement('button');
+    lb.textContent = `${r.label} ${fmt(a.from, r.step)}→${fmt(a.to, r.step)}${r.unit} · ${fmt(a.dur, 0.1)}s`;
+    lb.title = 'Show ' + r.label;
+    lb.addEventListener('click', () => { const row = r.inp.closest('details'); if (row) row.open = true; $('an-' + k).scrollIntoView({ block:'nearest', behavior:'smooth' }); });
+    const x = document.createElement('button'); x.className = 'x'; x.textContent = '×'; x.setAttribute('aria-label', 'Stop animating ' + r.label);
+    x.addEventListener('click', () => setAnim(k, false));
+    chip.append(lb, x); host.appendChild(chip);
+  }
+  const any = Object.values(AN).some(a => a.on);
+  $('animPause').disabled = $('animRestart').disabled = $('animStop').disabled = !any;
+  $('animPause').textContent = animPaused ? 'Resume' : 'Pause';
+  try { updateRecInfo(); } catch (e) {}
+}
+$('animPause').addEventListener('click', () => { animPaused = !animPaused; renderAnimList(); });
+function restartAnims(){ animClock = 0; for (const k in AN) AN[k].t0 = 0; }
+$('animRestart').addEventListener('click', () => { restartAnims(); animPaused = false; renderAnimList(); dirty = true; });
+$('animStop').addEventListener('click', () => { for (const k in AN) if (AN[k].on) setAnim(k, false); });
+document.querySelectorAll('input[name=type]').forEach(r => r.addEventListener('change', () => { S.type = r.value; updateVis(); renderAnimList(); dirty = true; }));
 document.querySelectorAll('input[name=show]').forEach(r => r.addEventListener('change', () => { S.show = r.value; dirty = true; }));
 for (const k of ['paper','inkA','inkB']) $('c-' + k).addEventListener('input', e => { S[k] = e.target.value; dirty = true; });
 
 function updateVis(){
-  document.querySelectorAll('[data-only],[data-spd]').forEach(el => {
-    el.hidden = !!((el.dataset.only && el.dataset.only !== S.type) || (el.dataset.spd && !ANIM[el.dataset.spd]));
+  document.querySelectorAll('[data-only]').forEach(el => { el.hidden = !!(el.dataset.only && el.dataset.only !== S.type); });
+  document.querySelectorAll('.anim').forEach(el => {
+    const k = el.id.slice(3);
+    el.hidden = !(AN[k] && AN[k].on) || !!(el.dataset.only && el.dataset.only !== S.type);
   });
   if (rangeEls.recDur) rangeEls.recDur.inp.closest('.row').hidden = S.recAuto;
 }
@@ -372,7 +475,6 @@ function syncUI(){
   $('t-' + S.type).checked = true; $('sh-' + S.show).checked = true;
   $('c-paper').value = S.paper; $('c-inkA').value = S.inkA; $('c-inkB').value = S.inkB;
   $('invert').checked = S.invert; $('recAuto').checked = S.recAuto;
-  $('sm-' + S.spinMode).checked = true;
   updateVis();
 }
 const pres = $('presets');
@@ -387,11 +489,27 @@ const PKEY = 'moire-line-studio.presets.v1';
 let myPresets = {};
 try { const raw = localStorage.getItem(PKEY); if (raw) myPresets = JSON.parse(raw) || {}; } catch (e) {}
 function persist(){ try { localStorage.setItem(PKEY, JSON.stringify(myPresets)); return true; } catch (e) { return false; } }
-function snapshot(){ const o = {}; for (const k in DEF) o[k] = S[k]; o.anim = { ...ANIM }; return o; }
+function snapshot(){ const o = {}; for (const k in DEF) o[k] = S[k]; o.anim = JSON.parse(JSON.stringify(AN)); return o; }
 function applyPreset(p){
   const oldRes = S.res;
   for (const k in DEF) if (k in p && typeof p[k] === typeof DEF[k]) S[k] = p[k];
-  if (p.anim) for (const k in ANIM) setAnim(k, !!p.anim[k]);
+  for (const k in AN) if (AN[k].on) setAnim(k, false);
+  restartAnims();
+  if (p.anim) for (const k in p.anim) {
+    if (!rangeEls[k] || NOANIM.has(k)) continue;
+    const v = p.anim[k];
+    if (v && typeof v === 'object') {
+      const d = animDefaults(k);
+      AN[k] = { on:false, from: isFinite(v.from) ? +v.from : d.from, to: isFinite(v.to) ? +v.to : d.to,
+                dur: isFinite(v.dur) ? Math.min(120, Math.max(0.2, +v.dur)) : d.dur, mode: v.mode === 'loop' ? 'loop' : 'pingpong' };
+      setAnim(k, !!v.on);
+    } else if (v === true) setAnim(k, true);           // presets saved by the older version
+  }
+  if (typeof p.drift === 'number' && p.drift) {        // older "Drift" setting becomes a Shift A loop
+    AN.offsetA = { on:false, from: p.drift > 0 ? 0 : 1, to: p.drift > 0 ? 1 : 0, dur: Math.min(120, Math.max(0.2, (p.period || S.period) / Math.abs(p.drift))), mode:'loop' };
+    setAnim('offsetA', true);
+  }
+  restartAnims();
   if (S.res !== oldRes && src) resize();
   needLum = true; syncUI(); dirty = true;
 }
@@ -581,13 +699,13 @@ let layers = { a: [], b: [] }, stats = { lines: 0, pts: 0 };
 function generate(t){
   const k = S.res / 1600;
   const pA = S.period * k, pB = pA * S.ratio, step = Math.max(0.5, S.step * k), m = S.width * k + step;
-  const phase = S.offsetA * pA + (S.drift ? (t / 1000) * S.drift * k : 0);
+  const phase = S.offsetA * pA, phaseB = S.offsetB * pB;
   if (S.type === 'linear') {
     layers.a = S.show !== 'b' ? genLinear(pA, S.angle, phase, S.aAmp, step, m) : [];
-    layers.b = S.show !== 'a' ? genLinear(pB, S.angle + S.bAngle, 0, S.bAmp, step, m) : [];
+    layers.b = S.show !== 'a' ? genLinear(pB, S.angle + S.bAngle, phaseB, S.bAmp, step, m) : [];
   } else {
     layers.a = S.show !== 'b' ? genRadial(S.cx, S.cy, pA, phase, S.aAmp, step, m) : [];
-    layers.b = S.show !== 'a' ? genRadial(S.bcx, S.bcy, pB, 0, S.bAmp, step, m) : [];
+    layers.b = S.show !== 'a' ? genRadial(S.bcx, S.bcy, pB, phaseB, S.bAmp, step, m) : [];
   }
   let pts = 0; for (const l of layers.a) pts += l.length/2; for (const l of layers.b) pts += l.length/2;
   stats = { lines: layers.a.length + layers.b.length, pts };
@@ -622,23 +740,17 @@ function updateReadout(){
 /* ---------- loop ---------- */
 let recording = false, lastT = null;
 const wrap = a => ((a + 90) % 180 + 180) % 180 - 90;
-function angleDelta(key, dt){
-  const sp = S[key + 'Spd'], st = AST[key];
-  if (S.spinMode === 'rotate') return sp * dt;
-  st.t += dt;
-  const period = 4 * S.swing / Math.max(0.01, Math.abs(sp));
-  const off = S.swing * Math.sin(2 * Math.PI * st.t / period) * Math.sign(sp || 1);
-  const d = off - st.prev; st.prev = off; return d;
-}
+const LUMK = new Set(['contrast','gamma','blur','detail']);
 function applyAnim(dt){
-  let changed = false;
-  if (S.type === 'linear') {
-    if (ANIM.angle) { const d = angleDelta('angle', dt); S.angle = wrap(S.angle + d); S.bAngle = wrap(S.bAngle - d); changed = true; }
-    if (ANIM.bAngle) { S.bAngle = wrap(S.bAngle + angleDelta('bAngle', dt)); changed = true; }
+  const keys = activeAnims(); if (!keys.length) return false;
+  if (!animPaused) animClock += dt;
+  for (const k of keys) {
+    const v = animValue(k, AN[k]), r = rangeEls[k];
+    S[k] = v; r.inp.value = v; fill(r.inp);
+    if (document.activeElement !== r.out) r.out.value = fmt(v, r.step);
+    if (LUMK.has(k)) needLum = true;
   }
-  if (ANIM.offsetA) { S.offsetA = (((S.offsetA + S.offsetASpd * dt) % 1) + 1) % 1; changed = true; }
-  if (changed) for (const k of ['angle','bAngle','offsetA']) { const r = rangeEls[k]; r.inp.value = S[k]; fill(r.inp); if (document.activeElement !== r.out) r.out.value = fmt(S[k], r.step); }
-  return changed;
+  return true;
 }
 function frame(t){
   const dt = lastT == null ? 0 : Math.min(0.5, (t - lastT) / 1000); lastT = t;
@@ -646,7 +758,6 @@ function frame(t){
   if (src) {
     if (isVideo && video.readyState >= 2 && video.currentTime !== lastVT) { lastVT = video.currentTime; needLum = true; }
     if (needLum) { sampleLum(); needLum = false; dirty = true; }
-    if (S.drift) dirty = true;
     if (dirty) { render(t, false); dirty = false; }
   }
   requestAnimationFrame(frame);
@@ -686,15 +797,15 @@ $('exPng').addEventListener('click', () => {
 
 let rec = null, recTimer = null, savedRes = null;
 const videoRunning = () => isVideo && !video.paused;
+// Seamless loop length: the shortest time after which every active animation is back at its start
 function loopCycle(){
-  const cycles = [];
-  for (const k of ['angle','bAngle']) if (ANIM[k] && S.type === 'linear') {
-    const sp = Math.max(0.01, Math.abs(S[k + 'Spd']));
-    cycles.push(S.spinMode === 'rotate' ? 180 / sp : 4 * S.swing / sp);
-  }
-  if (ANIM.offsetA) cycles.push(1 / Math.max(0.01, Math.abs(S.offsetASpd)));
-  if (S.drift) cycles.push(S.period / Math.abs(S.drift));
-  return cycles.length ? Math.max(...cycles) : 0;
+  const keys = activeAnims(); if (!keys.length || animPaused) return { len: 0 };
+  const gcd = (a, b) => b ? gcd(b, a % b) : a;
+  const ds = keys.map(k => Math.max(1, Math.round(AN[k].dur * 10)));
+  let l = ds[0];
+  for (const d of ds.slice(1)) { l = l / gcd(l, d) * d; if (l > 1200) break; }
+  if (l <= 1200) return { len: l / 10, seamless: true };
+  return { len: Math.max(...ds) / 10, seamless: false };
 }
 // What a recording would be right now: { dur, note } or { error }
 function recPlan(){
@@ -703,11 +814,11 @@ function recPlan(){
     const d = isFinite(video.duration) && video.duration > 0 ? video.duration : 10;
     return { dur: Math.min(d, 120), note: 'one pass of the video' };
   }
-  const c = loopCycle();
-  if (!c) return { error: isVideo
-    ? 'The video is paused and nothing is animating. Press a play button or set Drift, or turn off "one seamless loop" and set a duration.'
-    : 'Nothing is animating. Press a play button (Angle, Angle B, A phase) or set Drift, or turn off "one seamless loop" and set a duration.' };
+  const lc = loopCycle(), c = lc.len;
+  if (!c) return { error: (animPaused ? 'Animation is paused. Press Resume in Motion' : 'Nothing is animating. Press ▶ next to a setting')
+    + (isVideo ? ' (the video is paused too)' : '') + ', or turn off "one seamless loop" and set a duration.' };
   const dur = Math.min(c * Math.max(1, Math.ceil(3 / c)), 120);
+  if (!lc.seamless) return { dur, note: (isVideo ? 'video frozen, ' : '') + 'Times don’t line up, so the loop won’t be seamless. Use matching or whole-number times.' };
   return { dur, note: (isVideo ? 'video frozen, ' : '') + 'moiré loops seamlessly' };
 }
 function recSize(){
@@ -749,6 +860,7 @@ $('exRec').addEventListener('click', () => {
   };
   // a playing source video restarts from the top; a paused one stays frozen
   if (videoRunning()) { video.currentTime = 0; video.play(); $('vplay').textContent = 'Pause video'; }
+  restartAnims();                      // start every animation from its first keyframe so the loop closes
   recording = true; dirty = true;
   rec.start(250);
   $('exRec').classList.add('on'); $('exRec').innerHTML = `<span class="rec-dot"></span>Stop · ${plan.dur.toFixed(1)}s`;
@@ -760,6 +872,7 @@ let tt;
 function toast(msg){ const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(tt); tt = setTimeout(() => t.classList.remove('show'), 2600); }
 
 syncUI();
+renderAnimList();
 useSample();
 requestAnimationFrame(frame);
 })();
