@@ -121,6 +121,7 @@ input[type=color]::-moz-color-swatch{border:0;border-radius:50%}
 .seg.small{background:var(--card)}
 .seg.small label{padding:3px 4px;font-size:11.5px}
 .seg.small input:checked + label{background:var(--accent);color:var(--accent-ink);box-shadow:none}
+.srcvid{position:fixed;left:0;top:0;width:2px;height:2px;opacity:0;pointer-events:none;z-index:-1}
 .sec-inner{display:flex;flex-direction:column;gap:12px}
 .sublabel{font-size:11.5px;font-weight:600;color:var(--muted);margin-top:4px}
 .saverow{display:flex;gap:6px}
@@ -240,7 +241,7 @@ input[type=color]::-moz-color-swatch{border:0;border-radius:50%}
     </details>
   </aside>
 </div>
-<video id="vid" muted loop playsinline hidden></video>
+<video id="vid" class="srcvid" muted loop playsinline webkit-playsinline preload="auto" aria-hidden="true"></video>
 <div class="toast" id="toast" role="status"></div>
 
 <script>
@@ -594,21 +595,40 @@ function setSource(el, w, h, label, vid){
 }
 function useSample(){ if (isVideo) video.pause(); const c = makeSample(); setSource(c, c.width, c.height, 'Showing the built-in sample. You can also drop or paste a file.', false); }
 
+const VIDEO_EXT = /\.(mp4|m4v|mov|webm|ogv|ogg|mkv|avi|3gp)$/i;
+let videoLoadTimer = null;
 function loadFile(f){
   if (!f) return;
   const url = URL.createObjectURL(f);
-  if (f.type.startsWith('video/')) {
-    video.src = url; video.muted = true; video.loop = true;
-    video.onloadeddata = () => { setSource(video, video.videoWidth, video.videoHeight, f.name, true); video.play().catch(()=>{}); $('vplay').textContent = 'Pause video'; };
-    video.onerror = () => toast('This video format cannot be decoded here. Try MP4 (H.264) or WebM.');
+  const isVid = (f.type && f.type.startsWith('video/')) || (!f.type && VIDEO_EXT.test(f.name)) || /quicktime/.test(f.type);
+  if (isVid) {
+    clearTimeout(videoLoadTimer);
+    $('srcName').textContent = 'Loading ' + f.name + '…';
+    let ready = false;
+    const fail = msg => { if (ready) return; clearTimeout(videoLoadTimer); $('srcName').textContent = 'Could not load ' + f.name + '.'; toast(msg); };
+    const onReady = () => {
+      if (ready || !video.videoWidth) return;
+      ready = true; clearTimeout(videoLoadTimer);
+      setSource(video, video.videoWidth, video.videoHeight, f.name, true);
+      video.play().then(() => { $('vplay').textContent = 'Pause video'; }).catch(() => { $('vplay').textContent = 'Play video'; });
+    };
+    video.onloadedmetadata = onReady; video.onloadeddata = onReady; video.oncanplay = onReady;
+    video.onerror = () => fail(/\.mov$/i.test(f.name) || /quicktime|hevc|hvc/i.test(f.type)
+      ? 'This browser cannot decode this video. iPhone .MOV files often use HEVC: export or convert to MP4 (H.264) and try again.'
+      : 'This browser cannot decode this video. Try MP4 (H.264) or WebM.');
+    video.muted = true; video.loop = true; video.playsInline = true;
+    video.src = url; video.load();
+    // Safari on iPhone/iPad only loads video data once playback is requested, so ask right away (we're still inside the tap)
+    const pp = video.play(); if (pp && pp.catch) pp.catch(() => {});
+    videoLoadTimer = setTimeout(() => fail('The video did not load. It may use a format this browser cannot play. Try MP4 (H.264), or a shorter clip.'), 15000);
   } else {
     const img = new Image();
     img.onload = () => { if (isVideo) video.pause(); setSource(img, img.naturalWidth, img.naturalHeight, f.name, false); };
-    img.onerror = () => toast('Could not read that image. Try PNG, JPG or WebP.');
+    img.onerror = () => toast(/\.(heic|heif)$/i.test(f.name) ? 'HEIC photos are not supported in this browser. Export as JPG or PNG.' : 'Could not read that file. Use an image (PNG, JPG, WebP) or a video (MP4, WebM, MOV).');
     img.src = url;
   }
 }
-$('file').addEventListener('change', e => loadFile(e.target.files[0]));
+$('file').addEventListener('change', e => { loadFile(e.target.files[0]); e.target.value = ''; });
 $('sampleBtn').addEventListener('click', useSample);
 $('vplay').addEventListener('click', () => {
   if (video.paused) { video.play(); $('vplay').textContent = 'Pause video'; }
