@@ -627,20 +627,43 @@ function resize(){
   cv.width = W; cv.height = H;
 }
 
+// Gaussian-like blur done in JS (3 box passes per axis) so it works in every browser, Safari included
+function boxesForGauss(sigma, n){
+  const wIdeal = Math.sqrt(12 * sigma * sigma / n + 1);
+  let wl = Math.floor(wIdeal); if (wl % 2 === 0) wl--;
+  const wu = wl + 2, m = Math.round((12 * sigma * sigma - n * wl * wl - 4 * n * wl - 3 * n) / (-4 * wl - 4));
+  const out = []; for (let i = 0; i < n; i++) out.push(((i < m ? wl : wu) - 1) / 2);
+  return out;
+}
+function boxPass(src, dst, w, h, r, horiz){
+  const len = horiz ? w : h, lines = horiz ? h : w, stride = horiz ? 1 : w, lstep = horiz ? w : 1, inv = 1 / (2 * r + 1);
+  for (let l = 0; l < lines; l++) {
+    const base = l * lstep;
+    const at = i => src[base + (i < 0 ? 0 : i >= len ? len - 1 : i) * stride];   // clamp: edges keep their tone
+    let acc = 0; for (let i = -r; i <= r; i++) acc += at(i);
+    for (let i = 0; i < len; i++) { dst[base + i * stride] = acc * inv; acc += at(i + r + 1) - at(i - r); }
+  }
+}
+function blurField(f, w, h, sigma){
+  if (sigma < 0.3) return f;
+  const tmp = new Float32Array(f.length);
+  for (const r of boxesForGauss(sigma, 3)) {
+    const rr = Math.max(1, Math.round(r));
+    boxPass(f, tmp, w, h, rr, true); boxPass(tmp, f, w, h, rr, false);
+  }
+  return f;
+}
 function sampleLum(){
   lw = Math.round(S.detail); lh = Math.max(2, Math.round(lw * srcH / srcW));
   lumC.width = lw; lumC.height = lh;
   lctx.fillStyle = '#fff'; lctx.fillRect(0,0,lw,lh);
-  const b = S.blur * lw / 400;
-  // pad by drawing slightly oversized so blur doesn't fade the borders to white
-  const pad = Math.ceil(b * 2);
-  lctx.filter = b > 0 ? `blur(${b}px)` : 'none';
-  try { lctx.drawImage(src, -pad, -pad, lw + pad*2, lh + pad*2); } catch(e) {}
-  lctx.filter = 'none';
+  try { lctx.drawImage(src, 0, 0, lw, lh); } catch(e) {}
   const d = lctx.getImageData(0,0,lw,lh).data;
   lum = new Float32Array(lw * lh);
-  for (let i = 0, j = 0; i < lum.length; i++, j += 4) {
-    let v = 1 - (0.2126*d[j] + 0.7152*d[j+1] + 0.0722*d[j+2]) / 255; // darkness
+  for (let i = 0, j = 0; i < lum.length; i++, j += 4) lum[i] = 1 - (0.2126*d[j] + 0.7152*d[j+1] + 0.0722*d[j+2]) / 255; // darkness
+  blurField(lum, lw, lh, S.blur * lw / 400);   // Smooth is relative to the image, so Detail doesn't change its look
+  for (let i = 0; i < lum.length; i++) {
+    let v = lum[i];
     if (S.invert) v = 1 - v;
     v = (v - 0.5) * S.contrast + 0.5;
     v = v < 0 ? 0 : v > 1 ? 1 : v;
